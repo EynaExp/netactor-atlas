@@ -1,0 +1,37 @@
+# Secrets & env
+.env
+backend/.env
+deploy/.env
+*.key
+*.pem
+
+# Data & artifacts
+backend/netactor.db
+backend/netactor.db-*
+reports/
+*.md.bak
+app-reports/
+
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Vendored large files (fetched via deploy/fetch-vendor.sh)
+deploy/vendor/
+deploy/wheels/
+deploy/bin/nxc.zip
+
+# Docker junk
+deploy/bin/nuclei
+
+# Misc
+*.log
+.DS_Store
+nohup.out

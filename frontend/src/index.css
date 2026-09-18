@@ -1,0 +1,179 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Vazirmatn:wght@300;400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-primary: #000000;
+  --bg-secondary: #0a0a0a;
+  --bg-tertiary: #141414;
+  --border-color: #2e2e2e;
+  --text-primary: #f5f5f5;
+  --text-secondary: #7a7a7a;
+  --accent-blue: #3b8dff;
+  --accent-purple: #a855f7;
+  --accent-green: #ffffff;
+  --accent-red: #ef4444;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Persian/RTL support */
+html[dir='rtl'] body {
+  font-family: 'Vazirmatn', 'Inter', system-ui, sans-serif;
+}
+
+html[dir='rtl'] {
+  --rtl-flip: 1;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* Glass effect */
+.glass {
+  background: rgba(10, 10, 10, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.glass-card {
+  background: linear-gradient(135deg, rgba(10, 10, 10, 0.92) 0%, rgba(20, 20, 20, 0.75) 100%);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(59, 141, 255, 0.12);
+}
+
+/* Neon glow effects */
+.glow-blue {
+  box-shadow: 0 0 15px rgba(59, 141, 255, 0.3), 0 0 30px rgba(59, 141, 255, 0.1);
+}
+
+.glow-green {
+  box-shadow: 0 0 15px rgba(255, 255, 255, 0.25), 0 0 30px rgba(255, 255, 255, 0.08);
+}
+
+.glow-purple {
+  box-shadow: 0 0 15px rgba(168, 85, 247, 0.3), 0 0 30px rgba(168, 85, 247, 0.1);
+}
+
+.glow-red {
+  box-shadow: 0 0 15px rgba(239, 68, 68, 0.3), 0 0 30px rgba(239, 68, 68, 0.1);
+}
+
+/* Gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, #3b8dff 0%, #a855f7 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Animated background */
+.animated-bg {
+  background: linear-gradient(90deg, #000000, #0a0a0a, #000000);
+  background-size: 200% 100%;
+  animation: bg-shift 15s ease infinite;
+}
+
+@keyframes bg-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+
+/* Phase node styles */
+.phase-node {
+  position: relative;
+  transition: all 0.3s ease;
+}
+
+.phase-node::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  background: linear-gradient(135deg, #3b8dff, #a855f7);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: -1;
+}
+
+.phase-node:hover::before {
+  opacity: 1;
+}
+
+/* Status indicator pulse */
+.status-pulse {
+  position: relative;
+}
+
+.status-pulse::after {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  opacity: 0;
+  animation: status-ring 2s ease-out infinite;
+}
+
+@keyframes status-ring {
+  0% { transform: scale(1); opacity: 0.5; }
+  100% { transform: scale(1.5); opacity: 0; }
+}
+
+/* Shimmer loading effect */
+.shimmer {
+  background: linear-gradient(90deg, transparent, rgba(59, 141, 255, 0.1), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Flow line animation */
+.flow-line {
+  stroke-dasharray: 10 10;
+  animation: flow 1s linear infinite;
+}
+
+@keyframes flow {
+  0% { stroke-dashoffset: 20; }
+  100% { stroke-dashoffset: 0; }
+}
+
+/* Severity badges */
+.severity-critical { @apply bg-red-500/20 text-red-400 border border-red-500/30; }
+.severity-high { @apply bg-orange-500/20 text-orange-400 border border-orange-500/30; }
+.severity-medium { @apply bg-yellow-500/20 text-yellow-400 border border-yellow-500/30; }
+.severity-low { @apply bg-blue-500/20 text-blue-400 border border-blue-500/30; }
+.severity-info { @apply bg-gray-500/20 text-gray-400 border border-gray-500/30; }

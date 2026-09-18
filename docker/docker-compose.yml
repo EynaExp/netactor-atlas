@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.app
+    container_name: netactor-app
+    ports:
+      - "80:80"
+      - "8000:8000"
+    volumes:
+      - ../backend:/app
+      - netactor-data:/app/data
+    environment:
+      - DATABASE_URL=sqlite+aiosqlite:///./data/netactor.db
+      - LLM_BASE_URL=http://host.docker.internal:11434/v1
+      - LLM_API_KEY=ollama
+      - LLM_MODEL=llama3.2
+      - TOOLBOX_MCP_URL=http://toolbox:3001/mcp
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - toolbox
+    restart: unless-stopped
+
+  toolbox:
+    build:
+      context: ../toolbox
+      dockerfile: Dockerfile
+    container_name: netactor-toolbox
+    ports:
+      - "3001:3001"
+    volumes:
+      - toolbox-data:/workspace
+      - ${REPORT_DIR:-../reports}:/reports
+    restart: unless-stopped
+
+volumes:
+  netactor-data:
+  toolbox-data:

@@ -1,0 +1,66 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl wget git python3 python3-pip python3-venv python3-dev \
+    unzip jq dnsutils whois smbclient \
+    nmap masscan \
+    build-essential libssl-dev libffi-dev \
+    nodejs npm supervisor \
+    && rm -rf /var/lib/apt/lists/*
+
+# NetExec (nxc) - vendored prebuilt binary
+COPY deploy/bin/nxc.zip /tmp/nxc.zip
+RUN unzip -o /tmp/nxc.zip -d /usr/local/bin/nxc-tmp && rm /tmp/nxc.zip && \
+    mv /usr/local/bin/nxc-tmp/nxc /usr/local/bin/nxc 2>/dev/null || \
+    mv /usr/local/bin/nxc-tmp/* /usr/local/bin/ 2>/dev/null; \
+    chmod +x /usr/local/bin/nxc* 2>/dev/null || true && rm -rf /usr/local/bin/nxc-tmp
+
+# searchsploit - vendored repo
+COPY deploy/vendor/exploitdb /opt/exploitdb
+RUN ln -sf /opt/exploitdb/searchsploit /usr/local/bin/searchsploit
+
+# Nuclei - vendored binary (templates auto-download on first run)
+COPY deploy/bin/nuclei /usr/local/bin/nuclei
+RUN chmod +x /usr/local/bin/nuclei
+
+# Wheels (pre-downloaded, no network needed at build)
+COPY deploy/wheels/ /opt/wheels/
+
+# ADscan - vendored source + deps
+COPY deploy/vendor/adscan /opt/adscan
+RUN pip install --no-cache-dir --break-system-packages \
+        psutil prompt_toolkit pygments questionary dnspython \
+        impacket pycryptodome pypsrp pypykatz scapy \
+        python-docx openpyxl pdfplumber python-magic netifaces \
+        pydantic textual redis rustworkx pyyaml \
+        --no-index --find-links /opt/wheels && \
+    pip install --no-cache-dir --break-system-packages /opt/adscan \
+        --no-index --find-links /opt/wheels && \
+    ln -sf /opt/adscan/adscan.py /usr/local/bin/adscan
+
+# adPEAS - vendored source, patch setup.py typo
+COPY deploy/vendor/adPEAS /opt/adPEAS
+RUN python3 -c "import pathlib; p=pathlib.Path('/opt/adPEAS/setup.py'); s=p.read_text(); s=s.replace(\"'termcolor==2.5.0'\n          'beautifulsoup4'\", \"'termcolor==2.5.0',\n          'beautifulsoup4'\"); p.write_text(s)" && \
+    pip install --no-cache-dir --break-system-packages --no-deps /opt/adPEAS && \
+    pip install --no-cache-dir --break-system-packages \
+        certipy-ad impacket ldap3==2.9.1 regex termcolor \
+        beautifulsoup4 bloodhound-python certi==0.1.0 \
+        --no-index --find-links /opt/wheels && \
+    rm -rf /opt/wheels
+
+RUN mkdir -p /app /workspace /reports
+WORKDIR /workspace
+
+# MCP server
+COPY deploy/mcp-serve.js /app/mcp-serve.js
+COPY deploy/toolbox-init.sh /app/toolbox-init.sh
+RUN chmod +x /app/toolbox-init.sh
+
+EXPOSE 3001
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD curl -f http://localhost:3001/health || exit 1
+
+CMD ["/app/toolbox-init.sh"]

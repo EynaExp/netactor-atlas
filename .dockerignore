@@ -1,0 +1,10 @@
+.git
+backend/.venv
+backend/__pycache__
+backend/netactor.db
+frontend/node_modules
+frontend/dist
+reports
+*.log
+__pycache__
+.venv
