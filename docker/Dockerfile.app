@@ -42,8 +42,9 @@ COPY --from=backend /usr/local/bin /usr/local/bin
 # Copy frontend build
 COPY --from=frontend /app/dist /usr/share/nginx/html
 
-# Copy nginx config
+# Copy nginx config (remove default site that overrides it)
 COPY docker/nginx.conf /etc/nginx/conf.d/default.conf
+RUN rm -f /etc/nginx/sites-enabled/default
 
 EXPOSE 80
 
