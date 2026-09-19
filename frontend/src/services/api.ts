@@ -143,6 +143,9 @@ export const getLLMSettings = () =>
 export const updateLLMSettings = (data: Partial<LLMSettings>) =>
   request<LLMSettings>('/settings/llm', { method: 'PUT', body: JSON.stringify(data) });
 
+export const testLLMConnection = () =>
+  request<{ success: boolean; model?: string; tokens_used?: number; error?: string }>('/settings/llm/test', { method: 'POST' });
+
 // Toolbox
 export const listToolboxes = () =>
   request<ToolboxConfig[]>('/toolboxes');

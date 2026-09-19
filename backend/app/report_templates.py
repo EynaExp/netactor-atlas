@@ -71,8 +71,10 @@ def generate_report(phases: Dict, engagement: Dict, report_level: str = "medium"
     target = engagement.get("target", "Unknown")
     scope = engagement.get("target_scope", [])
     scope_str = ", ".join(
-        t.get("host") or t.get("value", "") for t in scope if isinstance(t, dict)
+        t.get("host") or t.get("value") or t.get("target", "") for t in scope if isinstance(t, dict)
     ) if scope else target
+    if not scope_str:
+        scope_str = target
 
     recon = _extract_recon_data(phases)
     scanner = _extract_scanner_data(phases)

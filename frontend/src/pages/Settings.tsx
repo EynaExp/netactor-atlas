@@ -5,10 +5,19 @@ import {
   Server, Link, Wifi
 } from 'lucide-react';
 import {
-  getLLMSettings, updateLLMSettings, listToolboxes, addToolbox,
+  getLLMSettings, updateLLMSettings, testLLMConnection, listToolboxes, addToolbox,
   deleteToolbox, testToolbox
 } from '../services/api';
 import { LLMSettings, ToolboxConfig } from '../types';
+
+const LLM_PROVIDERS: Record<string, { base_url: string; model: string }> = {
+  'OpenRouter': { base_url: 'https://openrouter.ai/api/v1', model: '' },
+  'OpenAI': { base_url: 'https://api.openai.com/v1', model: 'gpt-4' },
+  'Ollama (Local)': { base_url: 'http://localhost:11434/v1', model: 'llama3.2' },
+  'LM Studio (Local)': { base_url: 'http://localhost:1234/v1', model: '' },
+  'vLLM (Local)': { base_url: 'http://localhost:8080/v1', model: '' },
+  'Custom': { base_url: '', model: '' },
+};
 
 export default function SettingsPage() {
   const [llm, setLlm] = useState<LLMSettings>({ base_url: '', api_key: '', model: '' });
@@ -24,6 +33,10 @@ export default function SettingsPage() {
     mcp_url: '',
     working_dir: '/workspace',
   });
+  const [provider, setProvider] = useState('OpenRouter');
+  const [llmStatus, setLlmStatus] = useState<'idle' | 'testing' | 'active' | 'failed'>('idle');
+  const [llmTestError, setLlmTestError] = useState('');
+  const [llmSaved, setLlmSaved] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -34,8 +47,24 @@ export default function SettingsPage() {
       const [llmData, tbData] = await Promise.all([getLLMSettings(), listToolboxes()]);
       setLlm(llmData);
       setToolboxes(tbData);
+      // Detect provider from base_url
+      if (llmData.base_url?.includes('openrouter')) setProvider('OpenRouter');
+      else if (llmData.base_url?.includes('openai.com')) setProvider('OpenAI');
+      else if (llmData.base_url?.includes('localhost:11434')) setProvider('Ollama (Local)');
+      else if (llmData.base_url?.includes('localhost:1234')) setProvider('LM Studio (Local)');
+      else if (llmData.base_url?.includes('localhost:8080')) setProvider('vLLM (Local)');
+      else setProvider('Custom');
+      setLlmStatus('idle');
     } catch (e) {
       console.error('Failed to load settings:', e);
+    }
+  };
+
+  const handleProviderChange = (name: string) => {
+    setProvider(name);
+    const preset = LLM_PROVIDERS[name];
+    if (preset) {
+      setLlm({ ...llm, base_url: preset.base_url, model: preset.model || llm.model });
     }
   };
 
@@ -43,10 +72,32 @@ export default function SettingsPage() {
     setSaving(true);
     try {
       await updateLLMSettings(llm);
+      setLlmSaved(true);
+      setLlmStatus('active');
+      setLlmTestError('');
+      setTimeout(() => setLlmSaved(false), 3000);
     } catch (e) {
       console.error('Failed to save LLM settings:', e);
+      setLlmSaved(false);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleTestLLM = async () => {
+    setLlmStatus('testing');
+    setLlmTestError('');
+    try {
+      const result = await testLLMConnection();
+      if (result.success) {
+        setLlmStatus('active');
+      } else {
+        setLlmStatus('failed');
+        setLlmTestError(result.error || 'Connection failed');
+      }
+    } catch (e) {
+      setLlmStatus('failed');
+      setLlmTestError(String(e));
     }
   };
 
@@ -103,22 +154,71 @@ export default function SettingsPage() {
             <div className="flex items-center gap-2">
               <Wifi className="w-5 h-5 text-neon-blue" />
               <h2 className="text-lg font-semibold text-white">LLM Provider</h2>
-            </div>
-            <button
-              onClick={handleSaveLLM}
-              disabled={saving}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-neon-blue/10 text-neon-blue border border-neon-blue/20 hover:bg-neon-blue/20 transition-colors text-sm"
-            >
-              {saving ? (
-                <div className="w-4 h-4 border-2 border-neon-blue border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <Save className="w-4 h-4" />
+              {llmStatus === 'active' && (
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-neon-green/15 text-neon-green text-xs font-medium">
+                  <span className="w-1.5 h-1.5 rounded-full bg-neon-green animate-pulse" />
+                  Active
+                </span>
               )}
-              Save
-            </button>
+              {llmStatus === 'failed' && (
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-neon-red/15 text-neon-red text-xs font-medium">
+                  <span className="w-1.5 h-1.5 rounded-full bg-neon-red" />
+                  Failed
+                </span>
+              )}
+              {llmSaved && (
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-neon-green/15 text-neon-green text-xs font-medium">
+                  Saved
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleTestLLM}
+                disabled={llmStatus === 'testing' || !llm.base_url || !llm.api_key || !llm.model}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-dark-700 text-dark-300 border border-dark-600 hover:bg-dark-600 hover:text-white transition-colors text-sm disabled:opacity-50"
+              >
+                {llmStatus === 'testing' ? (
+                  <div className="w-4 h-4 border-2 border-neon-blue border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <TestTube className="w-4 h-4" />
+                )}
+                Test Connection
+              </button>
+              <button
+                onClick={handleSaveLLM}
+                disabled={saving || !llm.base_url || !llm.api_key || !llm.model}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-neon-blue/10 text-neon-blue border border-neon-blue/20 hover:bg-neon-blue/20 transition-colors text-sm disabled:opacity-50"
+              >
+                {saving ? (
+                  <div className="w-4 h-4 border-2 border-neon-blue border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <Save className="w-4 h-4" />
+                )}
+                Save
+              </button>
+            </div>
           </div>
 
+          {llmTestError && (
+            <div className="mb-4 px-4 py-3 rounded-lg bg-neon-red/10 border border-neon-red/20 text-neon-red text-sm">
+              {llmTestError}
+            </div>
+          )}
+
           <div className="space-y-4">
+            <div>
+              <label className="text-xs text-dark-400 mb-1.5 block">Provider</label>
+              <select
+                value={provider}
+                onChange={(e) => handleProviderChange(e.target.value)}
+                className="w-full px-4 py-2.5 rounded-lg bg-dark-900 border border-dark-700 text-white text-sm focus:border-neon-blue outline-none transition-all"
+              >
+                {Object.keys(LLM_PROVIDERS).map((name) => (
+                  <option key={name} value={name}>{name}</option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="text-xs text-dark-400 mb-1.5 block">API Base URL</label>
               <input

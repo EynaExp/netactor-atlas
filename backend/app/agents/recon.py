@@ -8,38 +8,40 @@ class ReconAgent(BaseAgent):
         super().__init__(agent_type="recon", llm_client=llm_client, **kwargs)
 
     def default_system_prompt(self) -> str:
-        return """You are a reconnaissance agent in a penetration testing framework.
+        return """You are a network reconnaissance agent in a penetration testing framework.
 
-Your goal is to gather comprehensive information about the target scope using the available tools.
+Your goal is to discover all network services and their versions on the target. This is ASSET DISCOVERY, not web application testing.
 
 RECONNAISSANCE METHODOLOGY:
-1. Start with a port scan (nmap) to discover open services
-2. Run service version detection on discovered ports
-3. For web services, use curl to check HTTP headers and technology stack
-4. Search for known exploits (searchsploit) for discovered software
-5. If a domain target, enumerate further
+1. Run nmap port scan to discover open ports and services
+2. Run nmap service version detection (-sV) on discovered ports
+3. Run nmap OS detection (-O) when possible
+4. Identify software names and exact versions for every service
+5. Use searchsploit to look up known CVEs and exploits for each discovered service version
 
-APPROACH:
-- Be methodical - scan ports first, then investigate services
-- Use appropriate flags for the situation
-- Document all findings as you go
-- When you have enough data, output your analysis_complete response
+IMPORTANT RULES:
+- Focus ONLY on network services (SSH, HTTP, databases, management interfaces, etc.)
+- Do NOT test web application endpoints (no LFI, SQLi, XSS, directory traversal)
+- Do NOT use curl to test web vulnerabilities
+- DO use curl ONLY to identify web server software and version from headers
+- Extract the software name and version from nmap output for every service
+- Search ExploitDB/searchsploit for each discovered software+version pair
 
 OUTPUT FORMAT - When complete, provide:
 {
   "analysis_complete": true,
-  "summary": "Overview of reconnaissance findings",
+  "summary": "Overview of discovered network services and versions",
   "findings": [
     {
-      "title": "Finding title",
-      "severity": "info|low|medium|high|critical",
-      "description": "What was discovered",
-      "evidence": "Raw tool output or observation"
+      "title": "Service discovered: [software] [version] on port [port]",
+      "severity": "info",
+      "description": "Discovered [software] [version] running on port [port]/[protocol]",
+      "evidence": "Raw nmap output showing the service"
     }
   ]
 }
 
-Always be thorough and document your methodology."""
+Be thorough with version detection — accurate version info is critical for CVE matching."""
 
     async def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         targets = input_data.get("targets", [])
@@ -51,19 +53,19 @@ Always be thorough and document your methodology."""
             for t in targets
         ])
 
-        task = f"""Perform reconnaissance on the following targets:
+        task = f"""Perform network reconnaissance on the following targets:
 
 Targets: {target_list}
 Scan Mode: {scan_mode}
 
 Your task:
-1. Run port scanning (nmap) on each target to discover open ports and services
-2. Identify service versions and software
-3. For any web services, check HTTP headers and technology stack using curl
-4. Search for known exploits for discovered software versions using searchsploit
+1. Run nmap port scan (-sV -sC) on each target to discover open ports and services with versions
+2. Identify the exact software name and version for every open service
+3. Use curl -I ONLY to confirm web server version from HTTP headers (do NOT test web app vulnerabilities)
+4. Use searchsploit to look up known CVEs for each discovered service/version
 5. Compile all findings into a structured report
 
-Start by scanning the first target with nmap to discover open ports."""
+Start by scanning the first target with nmap to discover open ports and service versions."""
 
         result = await self.run_agent_loop(
             task=task,

@@ -36,17 +36,13 @@ settings = Settings()
 DEFAULT_TOOLBOXES = [
     {
         "name": "pentest-tools",
-        "executor_type": "docker",
-        "container_name": "netactor-toolbox",
-        "image": "netactor/toolbox:latest",
-        "mcp_url": os.environ.get("MCP_URL", "http://localhost:3001"),
+        "executor_type": "local",
+        "mcp_url": os.environ.get("MCP_URL", "http://localhost:3001/mcp"),
         "working_dir": "/workspace"
     },
     {
         "name": "kali",
-        "executor_type": "docker",
-        "container_name": "kali-tools",
-        "image": "kalilinux/kali-rolling",
+        "executor_type": "local",
         "working_dir": "/workspace"
     }
 ]

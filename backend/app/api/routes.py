@@ -232,6 +232,41 @@ async def update_llm_settings(update: LLMSettingsUpdate, admin: dict = Depends(r
     return llm_settings
 
 
+@router.post("/settings/llm/test")
+async def test_llm_connection(admin: dict = Depends(require_admin)):
+    import httpx
+    base_url = llm_settings.get("base_url", "").rstrip("/")
+    api_key = llm_settings.get("api_key", "")
+    model = llm_settings.get("model", "")
+    if not base_url or not api_key or not model:
+        return {"success": False, "error": "Missing base_url, api_key, or model"}
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                f"{base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": "Reply only with: OK"},
+                        {"role": "user", "content": "Reply with exactly: OK"}
+                    ],
+                    "max_tokens": 10,
+                },
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                usage = data.get("usage", {})
+                return {
+                    "success": True,
+                    "model": data.get("model", model),
+                    "tokens_used": usage.get("total_tokens", 0),
+                }
+            return {"success": False, "error": f"HTTP {resp.status_code}: {resp.text[:200]}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+
 # Toolbox endpoints
 @router.get("/toolboxes", response_model=List[ToolboxConfigResponse])
 async def list_toolboxes(admin: dict = Depends(require_admin)):
@@ -406,16 +441,20 @@ async def run_engagement(
     await audit(db, user["sub"], "scan_start", {"id": engagement_id, "name": engagement.name, "targets": engagement.target_scope})
 
     async def run_task():
+        import sys
+        print(f"[run_task] Starting engagement {engagement_id}", file=sys.stderr, flush=True)
         # Fresh DB session: the request-scoped session is closed when the response
         # returns, so background work must use its own session.
         from app.core.orchestrator import AgentOrchestrator
         async with async_session() as session:
+            print(f"[run_task] DB session created", file=sys.stderr, flush=True)
             orchestrator = AgentOrchestrator(
                 db=session,
                 llm_settings=llm_settings,
                 toolbox_manager=toolbox_manager,
                 tool_registry=tool_registry
             )
+            print(f"[run_task] Orchestrator created, llm={llm_settings}", file=sys.stderr, flush=True)
             orchestrator.set_progress_callback(broadcast_event)
             try:
                 result = await orchestrator.run_engagement(
@@ -427,6 +466,7 @@ async def run_engagement(
                     auto_approve=auto_approve,
                     report_level=engagement.report_level
                 )
+                print(f"[run_task] Engagement completed: {result.get('status')}", file=sys.stderr, flush=True)
                 final_status = "completed"
                 completed_at = datetime.utcnow()
                 if result.get("status") == "stopped":
@@ -442,6 +482,10 @@ async def run_engagement(
                 await session.execute(stmt)
                 await session.commit()
             except Exception as e:
+                import sys
+                print(f"[run_task] FAILED: {type(e).__name__}: {e}", file=sys.stderr, flush=True)
+                import traceback
+                traceback.print_exc(file=sys.stderr)
                 logger.exception(f"Engagement {engagement_id} failed")
                 stmt = update(Engagement).where(Engagement.id == engagement_id).values(status="failed")
                 await session.execute(stmt)

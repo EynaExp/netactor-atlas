@@ -114,6 +114,7 @@ class AgentOrchestrator:
         report_level: str = None
     ) -> Dict[str, Any]:
         self.report_level = report_level or "medium"
+        self._start_time = datetime.utcnow()
         llm = self.get_llm_client()
         configs = await self.get_agent_configs()
         enabled_tools = await self.get_enabled_tools()
@@ -311,10 +312,20 @@ class AgentOrchestrator:
             self._emit_event(engagement_id, "agent_action", data)
         )
 
+        elapsed = datetime.utcnow() - self._start_time
+        minutes = int(elapsed.total_seconds() // 60)
+        seconds = int(elapsed.total_seconds() % 60)
+        duration_str = f"{minutes}m {seconds}s" if minutes else f"{seconds}s"
+
         result = await agent.execute({
             "findings": phases,
             "scan_data": phases,
-            "engagement": {"id": engagement_id, "enable_exploit": enable_exploit},
+            "engagement": {
+                "id": engagement_id,
+                "enable_exploit": enable_exploit,
+                "target_scope": targets,
+                "duration": duration_str,
+            },
             "report_level": report_level
         })
         await self._save_session(session, agent)
@@ -641,22 +652,29 @@ class AgentOrchestrator:
                 return None
 
         def _local_convert_pdf():
-            """Fallback: markdown -> pdf via weasyprint (no docker needed)."""
+            """Fallback: markdown -> pdf via weasyprint, then xhtml2pdf (no docker needed)."""
+            import markdown as mdlib
+            md_text = open(md_path, encoding="utf-8").read()
+            html = mdlib.markdown(md_text, extensions=["tables", "fenced_code"])
+            styled = (
+                '<html><head><meta charset="utf-8"><style>'
+                'body{font-family:Arial,sans-serif;margin:40px;font-size:11pt}'
+                'h1,h2,h3{color:#1a3a5c}table{border-collapse:collapse;width:100%}'
+                'td,th{border:1px solid #999;padding:6px}code{background:#f4f4f4;padding:2px}'
+                'pre{background:#f4f4f4;padding:10px;overflow-x:auto}'
+                '</style></head><body>' + html + '</body></html>'
+            )
+            out = md_path.replace(".md", ".pdf")
             try:
-                import markdown as mdlib
                 from weasyprint import HTML
-                md_text = open(md_path, encoding="utf-8").read()
-                html = mdlib.markdown(md_text, extensions=["tables", "fenced_code"])
-                styled = (
-                    '<html><head><meta charset="utf-8"><style>'
-                    'body{font-family:Arial,sans-serif;margin:40px;font-size:11pt}'
-                    'h1,h2,h3{color:#1a3a5c}table{border-collapse:collapse;width:100%}'
-                    'td,th{border:1px solid #999;padding:6px}code{background:#f4f4f4;padding:2px}'
-                    'pre{background:#f4f4f4;padding:10px;overflow-x:auto}'
-                    '</style></head><body>' + html + '</body></html>'
-                )
-                out = md_path.replace(".md", ".pdf")
                 HTML(string=styled).write_pdf(out)
+                return out
+            except Exception as e:
+                logger.warning(f"WeasyPrint failed, trying xhtml2pdf: {e}")
+            try:
+                from xhtml2pdf import pisa
+                with open(out, "wb") as pdf_file:
+                    pisa.CreatePDF(styled, dest=pdf_file, encoding="utf-8")
                 return out
             except Exception as e:
                 logger.warning(f"Local PDF conversion failed: {e}")

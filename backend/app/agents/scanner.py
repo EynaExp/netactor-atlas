@@ -8,39 +8,40 @@ class ScannerAgent(BaseAgent):
         super().__init__(agent_type="scanner", llm_client=llm_client, **kwargs)
 
     def default_system_prompt(self) -> str:
-        return """You are a vulnerability scanning agent in a penetration testing framework.
+        return """You are a network vulnerability scanning agent in a penetration testing framework.
 
-Your goal is to scan discovered assets for vulnerabilities using the available tools.
+Your goal is to find known vulnerabilities (CVEs) for discovered network services. This is NETWORK VULNERABILITY ASSESSMENT, not web application testing.
 
 SCANNING METHODOLOGY:
-1. Review the recon data to identify services and versions
-2. Use searchsploit to find known exploits for discovered software
-3. For web services, use curl to test for common web vulnerabilities
-4. Use nmap with vulnerability scripts (--script vuln) on specific services
-5. Document all potential vulnerabilities found
+1. Review the recon data to identify all services, software names, and versions
+2. Use searchsploit to find known exploits/CVEs for each discovered software version
+3. Use nmap with vulnerability scripts (--script vuln) on specific services to detect known CVEs
+4. Check for outdated software versions with publicly known vulnerabilities
+5. Document all CVEs found with their CVE IDs
 
-APPROACH:
-- Focus on high-risk services first (web servers, databases, management interfaces)
-- Look for outdated software versions with known CVEs
-- Check for default credentials or misconfigurations
-- Test web endpoints for common vulnerabilities (LFI, directory traversal, etc.)
-- Document evidence for each finding
+IMPORTANT RULES:
+- Focus ONLY on network-level vulnerabilities and known CVEs
+- Do NOT test web application endpoints (no LFI, SQLi, XSS, directory traversal, etc.)
+- DO use searchsploit extensively to match service versions to known CVEs
+- DO use nmap --script vuln to detect network-level vulnerabilities
+- Match exact software versions from recon to CVE databases
+- Report each finding with its CVE ID if available
 
 OUTPUT FORMAT - When complete, provide:
 {
   "analysis_complete": true,
-  "summary": "Overview of vulnerability scan findings",
+  "summary": "Overview of network vulnerability scan findings",
   "findings": [
     {
-      "title": "Vulnerability title",
+      "title": "[Software] [Version] - [CVE ID or vulnerability name]",
       "severity": "info|low|medium|high|critical",
-      "description": "Description of the vulnerability",
-      "evidence": "Proof or observation of the vulnerability"
+      "description": "Description of the vulnerability and affected service",
+      "evidence": "searchsploit output, nmap script output, or other proof"
     }
   ]
 }
 
-Be thorough but focus on confirmed or likely vulnerabilities."""
+Be thorough but only report vulnerabilities backed by CVE data or ExploitDB entries."""
 
     async def execute(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         recon_data = input_data.get("recon_data", {})
@@ -52,19 +53,19 @@ Be thorough but focus on confirmed or likely vulnerabilities."""
             for t in targets
         ])
 
-        task = f"""Scan the following targets for vulnerabilities:
+        task = f"""Scan the following targets for network vulnerabilities and known CVEs:
 
 Targets: {target_list}
 Recon Data: {self._format_recon_data(recon_data)}
 
 Your task:
-1. Review the recon data to identify services and versions
-2. Search for known exploits (searchsploit) for each discovered software version
-3. For web services, test HTTP endpoints using curl for common issues
-4. Use nmap vulnerability scripts on interesting services
-5. Compile all vulnerabilities found with evidence
+1. Review the recon data to identify all services, software names, and versions
+2. Use searchsploit to find known CVEs for each discovered software+version pair
+3. Use nmap --script vuln on discovered services to detect known vulnerabilities
+4. Focus on network-level vulnerabilities only (not web app issues)
+5. Compile all CVEs found with evidence
 
-Start by searching for exploits for the discovered software versions."""
+Start by searching for exploits/CVEs for the discovered software versions."""
 
         result = await self.run_agent_loop(
             task=task,
@@ -81,7 +82,6 @@ Start by searching for exploits for the discovered software versions."""
         }
 
     def _format_recon_data(self, recon_data: Dict) -> str:
-        """Format recon data for the scanning task"""
         if not recon_data:
             return "No recon data available"
         parts = []
