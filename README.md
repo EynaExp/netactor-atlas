@@ -99,10 +99,18 @@ Configure your AI model in Settings > LLM Configuration:
 
 | Provider | Base URL | Model |
 |----------|----------|-------|
-| Ollama | http://localhost:11434/v1 | llama3.2, codellama |
+| Ollama (local) | http://localhost:11434/v1 | llama3.2, codellama |
+| Ollama Cloud | https://ollama.com/v1 | any cloud model, e.g. `gpt-oss:120b`, `nemotron-3-nano:30b` |
 | OpenAI | https://api.openai.com/v1 | gpt-4, gpt-4o |
 | LM Studio | http://localhost:8080/v1 | Any loaded model |
 | vLLM | http://localhost:1234/v1 | Any served model |
+
+Docker deployments read the provider from `docker/.env` (gitignored) — set
+`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` there, or change it at runtime in
+Settings > LLM Provider. For Ollama Cloud, create a key at
+<https://ollama.com/settings/keys>; model names are the ones listed by
+`https://ollama.com/api/tags`. Note the OpenAI-compatible endpoint does not
+support `tool_choice`, so keep agents on text-based tool calls.
 
 ### Toolbox Configuration
 

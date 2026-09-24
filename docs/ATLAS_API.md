@@ -201,6 +201,7 @@ served from there (NVD is queried once per CVE per scan).
 
 ```json
 {
+  "format": 3,
   "identifier": "atlas_2f9c8d0a1b3e4f5a6b7c8d9e",
   "engagement_id": "c1b2a3d4-...",
   "title": "ATLAS weekly",
@@ -209,6 +210,7 @@ served from there (NVD is queried once per CVE per scan).
   "generated_at": "2026-09-24T18:31:44.902",
   "source": "NVD CVE 2.0",
   "findings_total": 4,
+  "warnings": [],
   "items": [
     {
       "title": "Apache Log4j 2.14.1 - CVE-2021-44228 (JNDI RCE)",
@@ -258,12 +260,31 @@ served from there (NVD is queried once per CVE per scan).
 | `description` | English NVD description |
 | `impact.confidentiality` / `.integrity` / `.availability` | `HIGH`/`MEDIUM`/`LOW`/`NONE` |
 | `published` / `last_modified` / `vuln_status` | NVD metadata |
+| `mapping_warning` | `null`, or a message when the CVE's NVD description does not mention the product named in the finding title (the agent paired the CVE with the wrong product) |
 | `source` | `nvd` (or `error` + message if NVD could not be reached) |
 
 ### Where CVE ids come from
 
 1. `cve_ids` passed to `POST /scan`, then
 2. CVE references extracted from the scan findings (`CVE-YYYY-NNNN+`).
+
+### CVE/product mismatches
+
+Analysis agents are LLMs and sometimes attach a CVE to the wrong product. The
+report cross-checks each finding title against the NVD description: if none of
+the product words from the title appear in the advisory, the profile gets a
+`mapping_warning` and the report collects it in the top-level `warnings`
+array, e.g.
+
+```json
+"warnings": [
+  { "cve_id": "CVE-2020-11652",
+    "warning": "NVD description for CVE-2020-11652 does not mention nginx - the CVE may not match the product named in the finding; verify the mapping before acting on it" }
+]
+```
+
+`format` is the report schema version; cached reports from older deployments
+are regenerated when it changes.
 
 ### NVD rate limits
 

@@ -74,6 +74,67 @@ HOSTNAME_RE = re.compile(
 )
 CVE_RE = re.compile(r"CVE-\d{4}-\d{4,7}", re.IGNORECASE)
 
+# Report format version — bump when the generated shape changes so cached
+# reports from older deployments are regenerated instead of served stale.
+REPORT_FORMAT = 3
+
+# Words that never identify a product in a finding title.
+_MAPPING_STOPWORDS = {
+    "arbitrary", "remote", "local", "code", "execution", "command", "injection",
+    "vulnerability", "vulnerable", "exploit", "exploitable", "disclosure",
+    "bypass", "overflow", "elevation", "privilege", "escalation", "traversal",
+    "directory", "path", "file", "read", "write", "auth", "authentication",
+    "denial", "service", "buffer", "memory", "corruption", "pointer", "race",
+    "condition", "the", "and", "for", "with", "via", "from", "older", "before",
+    "after", "version", "versions", "upgrade", "patch", "security", "advisory",
+    "issue", "software", "component", "server", "client", "port", "scan",
+    "detected", "found", "known", "public", "multiple", "various", "allows",
+    "user", "users", "request", "requests", "response", "application", "app",
+}
+
+
+def _product_claim(title: str) -> List[str]:
+    """Best-effort product words from a finding title (for CVE cross-checks).
+
+    Hyphenated product names are kept whole ("node-serialize") so the warning
+    names the product the agent actually claimed.
+    """
+    text = CVE_RE.sub(" ", title or "")
+    text = re.sub(r"[<>=~^|]+", " ", text)
+    text = re.sub(r"\bv?\d+(?:\.\d+)+[a-z0-9]*\b", " ", text, flags=re.IGNORECASE)
+    words = re.findall(r"[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+|[A-Za-z][A-Za-z0-9]{2,}", text)
+    out: List[str] = []
+    for word in words:
+        wl = word.lower()
+        if wl in _MAPPING_STOPWORDS or wl in out:
+            continue
+        out.append(wl)
+    return out[:6]
+
+
+def _mapping_warning(title: str, profile: dict) -> Optional[str]:
+    """Flag a CVE/product mismatch.
+
+    The analysis agents are LLMs and sometimes pair a CVE with the wrong
+    product. The NVD description is ground truth, so when none of the product
+    words from the finding title appear in it, the mapping is suspect and the
+    report says so instead of silently presenting a confident wrong claim.
+    """
+    cve_id = (profile.get("cve_id") or "").upper()
+    if not cve_id or title.strip().upper() == cve_id:
+        return None  # title is just the requested CVE id — no product claimed
+    description = (profile.get("description") or "").lower()
+    if not description:
+        return None
+    claim = _product_claim(title)
+    if not claim or any(word in description for word in claim):
+        return None
+    return (
+        f"NVD description for {cve_id} does not mention "
+        f"{', '.join(claim[:3])} - the CVE may not match the product named in "
+        "the finding; verify the mapping before acting on it"
+    )
+
 
 # --- auth -------------------------------------------------------------------
 
@@ -484,7 +545,7 @@ async def atlas_scan_report(
     the engagement completes.
     """
     row, engagement = await _resolve_scan(db, scan_id)
-    if row.report and engagement.status == "completed":
+    if row.report and (row.report.get("format") or 0) >= REPORT_FORMAT:
         return row.report
 
     findings = await _scan_findings(db, engagement.id)
@@ -499,14 +560,20 @@ async def atlas_scan_report(
 
     nvd_key = await get_setting(NVD_KEY_SETTING) or os.environ.get("NVD_API_KEY", "")
     items = []
+    warnings = []
     for cve, title in cve_titles.items():
         try:
             profile = await fetch_cve(cve, api_key=nvd_key)
         except (CVENotFound, NVDBackendError) as e:
             profile = {"cve_id": cve, "source": "nvd", "error": str(e)}
+        warning = _mapping_warning(title, profile)
+        profile["mapping_warning"] = warning
+        if warning:
+            warnings.append({"cve_id": cve, "warning": warning})
         items.append({"title": title, "profile": profile})
 
     report = {
+        "format": REPORT_FORMAT,
         "identifier": row.identifier,
         "engagement_id": engagement.id,
         "title": engagement.name,
@@ -515,6 +582,7 @@ async def atlas_scan_report(
         "generated_at": datetime.utcnow().isoformat(),
         "source": "NVD CVE 2.0",
         "findings_total": len(findings),
+        "warnings": warnings,
         "items": items,
     }
     if engagement.status == "completed":
