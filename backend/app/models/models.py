@@ -174,3 +174,26 @@ class AssetSnapshot(Base):
     extra_info = Column(Text, nullable=True)
     state = Column(String(20), default="open")  # open, filtered, closed
     created_at = Column(DateTime, server_default=func.now())
+
+
+class Setting(Base):
+    """Generic key/value settings persisted in the DB (survives restarts)."""
+    __tablename__ = "settings"
+
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=True)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class AtlasScan(Base):
+    """ATLAS external API request linked to its NetActor engagement."""
+    __tablename__ = "atlas_scans"
+
+    identifier = Column(String(64), primary_key=True)           # ATLAS-facing id
+    engagement_id = Column(String, nullable=False, index=True)   # NetActor scan id
+    api_key_prefix = Column(String(16), nullable=True)
+    request_info = Column(JSON, nullable=True)   # scan parameters (never secrets)
+    report = Column(JSON, nullable=True)         # cached NVD-enriched report
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())

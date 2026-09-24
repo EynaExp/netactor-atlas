@@ -5,6 +5,7 @@ from fastapi.responses import FileResponse
 from app.core.config import settings, DEFAULT_TOOLBOXES
 from app.db.database import init_db
 from app.api.routes import router
+from app.api.atlas import router as atlas_router
 from app.models.models import AgentConfig
 from app.db.database import async_session
 from app.core.cli_executor import ToolboxManager, ToolboxConfig, ExecutorType, toolbox_manager
@@ -30,6 +31,7 @@ app.add_middleware(
 )
 
 app.include_router(router, prefix="/api")
+app.include_router(atlas_router, prefix="/api/atlas")
 
 
 @app.on_event("startup")

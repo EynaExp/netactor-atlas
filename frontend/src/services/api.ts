@@ -146,6 +146,25 @@ export const updateLLMSettings = (data: Partial<LLMSettings>) =>
 export const testLLMConnection = () =>
   request<{ success: boolean; model?: string; tokens_used?: number; error?: string }>('/settings/llm/test', { method: 'POST' });
 
+// ATLAS external API (admin key management)
+export const getAtlasKey = () =>
+  request<{ configured: boolean; key?: string; prefix?: string; header: string }>('/atlas/key');
+
+export const generateAtlasKey = () =>
+  request<{ configured: boolean; key: string; prefix: string; header: string }>('/atlas/key', { method: 'POST' });
+
+export const revokeAtlasKey = () =>
+  request<{ status: string }>('/atlas/key', { method: 'DELETE' });
+
+export const getNvdKey = () =>
+  request<{ configured: boolean; key?: string }>('/atlas/nvd-key');
+
+export const saveNvdKey = (api_key: string) =>
+  request<{ status: string }>('/atlas/nvd-key', { method: 'POST', body: JSON.stringify({ api_key }) });
+
+export const revokeNvdKey = () =>
+  request<{ status: string }>('/atlas/nvd-key', { method: 'DELETE' });
+
 // Toolbox
 export const listToolboxes = () =>
   request<ToolboxConfig[]>('/toolboxes');

@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   Settings as SettingsIcon, Save, TestTube, Plus, Trash2,
-  Server, Link, Wifi
+  Server, Link, Wifi, KeyRound, Copy, RefreshCw
 } from 'lucide-react';
 import {
   getLLMSettings, updateLLMSettings, testLLMConnection, listToolboxes, addToolbox,
-  deleteToolbox, testToolbox
+  deleteToolbox, testToolbox, getAtlasKey, generateAtlasKey, revokeAtlasKey,
+  getNvdKey, saveNvdKey, revokeNvdKey
 } from '../services/api';
 import { LLMSettings, ToolboxConfig } from '../types';
 
@@ -37,10 +38,91 @@ export default function SettingsPage() {
   const [llmStatus, setLlmStatus] = useState<'idle' | 'testing' | 'active' | 'failed'>('idle');
   const [llmTestError, setLlmTestError] = useState('');
   const [llmSaved, setLlmSaved] = useState(false);
+  const [atlasKey, setAtlasKey] = useState('');
+  const [atlasConfigured, setAtlasConfigured] = useState(false);
+  const [atlasBusy, setAtlasBusy] = useState(false);
+  const [keyCopied, setKeyCopied] = useState(false);
+  const [nvdKey, setNvdKey] = useState('');
+  const [nvdConfigured, setNvdConfigured] = useState(false);
 
   useEffect(() => {
     loadData();
+    loadAtlas();
   }, []);
+
+  const loadAtlas = async () => {
+    try {
+      const [a, n] = await Promise.all([getAtlasKey(), getNvdKey()]);
+      setAtlasKey(a.key || '');
+      setAtlasConfigured(a.configured);
+      setNvdKey(n.key || '');
+      setNvdConfigured(n.configured);
+    } catch (e) {
+      console.error('Failed to load ATLAS settings:', e);
+    }
+  };
+
+  const handleGenerateKey = async () => {
+    setAtlasBusy(true);
+    try {
+      const res = await generateAtlasKey();
+      setAtlasKey(res.key);
+      setAtlasConfigured(true);
+    } catch (e) {
+      console.error('Failed to generate ATLAS key:', e);
+    } finally {
+      setAtlasBusy(false);
+    }
+  };
+
+  const handleRevokeKey = async () => {
+    if (!confirm('Revoke the ATLAS API key? External ATLAS clients will stop working until a new key is generated.')) return;
+    setAtlasBusy(true);
+    try {
+      await revokeAtlasKey();
+      setAtlasKey('');
+      setAtlasConfigured(false);
+    } catch (e) {
+      console.error('Failed to revoke ATLAS key:', e);
+    } finally {
+      setAtlasBusy(false);
+    }
+  };
+
+  const handleCopyKey = async () => {
+    try {
+      await navigator.clipboard.writeText(atlasKey);
+      setKeyCopied(true);
+      setTimeout(() => setKeyCopied(false), 2000);
+    } catch (e) {
+      console.error('Failed to copy key:', e);
+    }
+  };
+
+  const handleSaveNvdKey = async () => {
+    setAtlasBusy(true);
+    try {
+      await saveNvdKey(nvdKey);
+      setNvdConfigured(true);
+    } catch (e) {
+      console.error('Failed to save NVD key:', e);
+    } finally {
+      setAtlasBusy(false);
+    }
+  };
+
+  const handleRevokeNvdKey = async () => {
+    setAtlasBusy(true);
+    try {
+      await revokeNvdKey();
+      setNvdKey('');
+      setNvdConfigured(false);
+    } catch (e) {
+      console.error('Failed to clear NVD key:', e);
+    } finally {
+      setAtlasBusy(false);
+    }
+  };
 
   const loadData = async () => {
     try {
@@ -248,6 +330,126 @@ export default function SettingsPage() {
                 placeholder="gpt-4"
                 className="w-full px-4 py-2.5 rounded-lg bg-dark-900 border border-dark-700 text-white font-mono text-sm focus:border-neon-blue outline-none transition-all"
               />
+            </div>
+          </div>
+        </motion.div>
+
+        {/* ATLAS External API */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05 }}
+          className="glass-card rounded-xl p-6"
+        >
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <KeyRound className="w-5 h-5 text-neon-green" />
+              <h2 className="text-lg font-semibold text-white">ATLAS External API</h2>
+              {atlasConfigured ? (
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-neon-green/15 text-neon-green text-xs font-medium">
+                  <span className="w-1.5 h-1.5 rounded-full bg-neon-green" />
+                  Key active
+                </span>
+              ) : (
+                <span className="px-2.5 py-0.5 rounded-full bg-dark-700 text-dark-300 text-xs font-medium">
+                  Not configured
+                </span>
+              )}
+            </div>
+            {atlasConfigured && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleGenerateKey}
+                  disabled={atlasBusy}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-dark-700 text-dark-300 border border-dark-600 hover:bg-dark-600 hover:text-white transition-colors text-sm disabled:opacity-50"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  Rotate
+                </button>
+                <button
+                  onClick={handleRevokeKey}
+                  disabled={atlasBusy}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg bg-neon-red/10 text-neon-red border border-neon-red/20 hover:bg-neon-red/20 transition-colors text-sm disabled:opacity-50"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Revoke
+                </button>
+              </div>
+            )}
+          </div>
+
+          <p className="text-sm text-dark-400 mb-4">
+            Lets the ATLAS app launch scans and fetch per-target CVE reports from this
+            NetActor instance. Requests authenticate with the{' '}
+            <code className="text-dark-300">X-API-Key</code> header.
+          </p>
+
+          {!atlasConfigured ? (
+            <button
+              onClick={handleGenerateKey}
+              disabled={atlasBusy}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-neon-green/10 text-neon-green border border-neon-green/20 hover:bg-neon-green/20 transition-colors text-sm disabled:opacity-50"
+            >
+              <KeyRound className="w-4 h-4" />
+              Generate API Key
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <input
+                readOnly
+                value={atlasKey}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-dark-900 border border-dark-700 text-white font-mono text-xs focus:border-neon-green outline-none"
+              />
+              <button
+                onClick={handleCopyKey}
+                className="p-2.5 rounded-lg text-dark-400 hover:text-neon-green hover:bg-neon-green/10 transition-colors"
+                title="Copy key"
+              >
+                <Copy className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          {keyCopied && <p className="mt-2 text-xs text-neon-green">Copied to clipboard</p>}
+
+          {atlasConfigured && (
+            <div className="mt-4 px-4 py-3 rounded-lg bg-dark-800/50 border border-dark-700">
+              <p className="text-xs text-dark-400 mb-1">Example</p>
+              <code className="block text-xs text-dark-300 font-mono break-all">
+                {`curl -X POST http://localhost/api/atlas/scan -H "X-API-Key: <key>" -H "Content-Type: application/json" -d '{"host":"192.168.1.10"}'`}
+              </code>
+            </div>
+          )}
+
+          <div className="mt-6 pt-6 border-t border-dark-700">
+            <label className="text-xs text-dark-400 mb-1.5 block">
+              NVD API key (optional - raises the NVD rate limit for CVE enrichment)
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="password"
+                value={nvdKey}
+                placeholder={nvdConfigured ? 'Saved - type a new key to replace' : 'nvd_api_...'}
+                onChange={(e) => setNvdKey(e.target.value)}
+                className="flex-1 px-4 py-2.5 rounded-lg bg-dark-900 border border-dark-700 text-white font-mono text-sm focus:border-neon-green outline-none"
+              />
+              <button
+                onClick={handleSaveNvdKey}
+                disabled={atlasBusy || !nvdKey}
+                className="px-4 py-2 rounded-lg bg-neon-blue/10 text-neon-blue border border-neon-blue/20 hover:bg-neon-blue/20 transition-colors text-sm disabled:opacity-50"
+              >
+                Save
+              </button>
+              {nvdConfigured && (
+                <button
+                  onClick={handleRevokeNvdKey}
+                  disabled={atlasBusy}
+                  className="p-2.5 rounded-lg text-dark-400 hover:text-neon-red hover:bg-neon-red/10 transition-colors"
+                  title="Clear NVD key"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
             </div>
           </div>
         </motion.div>
