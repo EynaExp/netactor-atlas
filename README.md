@@ -120,6 +120,9 @@ Configure toolboxes in Settings > Toolboxes:
 
 ### ATLAS External API
 
+> Full reference: **[docs/ATLAS_API.md](docs/ATLAS_API.md)** (auth, schemas,
+> examples, error codes). Interactive schema at `/docs`.
+
 The ATLAS app can drive NetActor over HTTP with a single admin-managed API key
 (Settings > ATLAS External API > Generate API Key). Every request authenticates
 with the `X-API-Key` header. The key is stored in the database and survives
