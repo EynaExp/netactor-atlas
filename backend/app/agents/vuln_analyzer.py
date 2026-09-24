@@ -92,5 +92,7 @@ Start by reviewing the scan results to identify the most critical CVE findings."
             "tool_calls": result.get("tool_calls", []),
             "findings": result.get("findings", []),
             "summary": result.get("summary", ""),
-            "detailed_analysis": result.get("summary", "")
+            "detailed_analysis": result.get("summary", ""),
+            "llm_failed": result.get("llm_failed", False),
+            "llm_error": result.get("llm_error", "")
         }

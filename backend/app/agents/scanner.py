@@ -78,7 +78,9 @@ Start by searching for exploits/CVEs for the discovered software versions."""
             "tool_calls": result.get("tool_calls", []),
             "findings": result.get("findings", []),
             "summary": result.get("summary", ""),
-            "analysis": result.get("summary", "")
+            "analysis": result.get("summary", ""),
+            "llm_failed": result.get("llm_failed", False),
+            "llm_error": result.get("llm_error", "")
         }
 
     def _format_recon_data(self, recon_data: Dict) -> str:

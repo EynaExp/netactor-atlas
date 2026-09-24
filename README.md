@@ -129,7 +129,7 @@ restarts; rotate or revoke it from the same card.
 |--------|------|---------|
 | `GET` | `/api/atlas/ping` | Check the key (`200` / `401`) |
 | `POST` | `/api/atlas/scan` | Launch a scan for one target -> `202` |
-| `GET` | `/api/atlas/scan/{id}` | Status, finding counts, phase checks, score, error |
+| `GET` | `/api/atlas/scan/{id}` | Status, finding counts, phase checks, score, error, warnings |
 | `GET` | `/api/atlas/scan/{id}/findings?severity=high` | Findings (optional severity filter) |
 | `GET` | `/api/atlas/scan/{id}/report` | Per-target JSON report with NVD-enriched CVE profiles |
 
@@ -211,6 +211,11 @@ API (`https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=`):
 catalog. Anonymous NVD lookups are throttled (2 requests / 30 s) and cached
 for 24 h; set an NVD API key in the same Settings card to raise the limit
 (50 requests / 30 s). The report is cached per scan once the scan completes.
+
+Scan status is reported honestly: if the LLM provider is unreachable the
+engagement is marked `failed` (with `error` set and `score: null`) instead of
+completing with zero findings, and a phase that lost the LLM mid-run is logged
+as `degraded` and surfaced in `checks.degraded` and `warnings`.
 
 ## Agent Types
 

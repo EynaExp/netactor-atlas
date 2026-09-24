@@ -222,18 +222,25 @@ async def _run_scan(
             except Exception:
                 pass
 
-        completed_at = datetime.utcnow() if final_status == "completed" else None
-        await session.execute(
-            update(Engagement)
-            .where(Engagement.id == engagement_id)
-            .values(status=final_status, completed_at=completed_at)
-        )
-        await session.execute(
-            update(AtlasScan)
-            .where(AtlasScan.identifier == identifier)
-            .values(error=error, updated_at=datetime.utcnow())
-        )
-        await session.commit()
+        # The orchestrator can hit a DB error (e.g. a bad value from the LLM)
+        # that leaves the session rolled back. Clear it before the final write,
+        # and never let a status write failure hide the engagement forever.
+        try:
+            await session.rollback()
+            completed_at = datetime.utcnow() if final_status == "completed" else None
+            await session.execute(
+                update(Engagement)
+                .where(Engagement.id == engagement_id)
+                .values(status=final_status, completed_at=completed_at)
+            )
+            await session.execute(
+                update(AtlasScan)
+                .where(AtlasScan.identifier == identifier)
+                .values(error=error, updated_at=datetime.utcnow())
+            )
+            await session.commit()
+        except Exception:  # noqa: BLE001
+            logger.exception("Could not persist final status for ATLAS scan %s", engagement_id)
 
 
 # --- schemas ----------------------------------------------------------------
@@ -370,12 +377,26 @@ async def atlas_scan_status(
     logs = (
         await db.execute(select(PhaseLog).where(PhaseLog.engagement_id == engagement.id))
     ).scalars().all()
-    passed = {log.phase for log in logs if (log.status or "").lower() == "completed"}
-    failed = 1 if engagement.status == "failed" else 0
+    # A degraded phase also has a "completed" log (the phase loop itself ran to
+    # the end), so bad phases must be subtracted from the passed set.
+    degraded = [log for log in logs if (log.status or "").lower() == "degraded"]
+    failed_logs = [log for log in logs if (log.status or "").lower() == "failed"]
+    failed_phases = {log.phase for log in failed_logs} & set(phases)
+    degraded_phases = ({log.phase for log in degraded} & set(phases)) - failed_phases
+    passed = (
+        {log.phase for log in logs if (log.status or "").lower() == "completed"} & set(phases)
+    ) - failed_phases - degraded_phases
+    failed = len(failed_phases)
+    degraded_count = len(degraded_phases)
 
     score = None
     if engagement.status == "completed":
         score = _score(counts)
+
+    warnings = [log.message for log in degraded if log.message]
+    warnings += [log.message for log in failed_logs if log.message]
+    if row.error:
+        warnings.append(row.error)
 
     severity_summary = {
         sev: counts.get(sev, 0)
@@ -393,15 +414,17 @@ async def atlas_scan_status(
         "score": score,
         "checks": {
             "total": len(phases),
-            "passed": len(passed & set(phases)),
+            "passed": len(passed),
             "failed": failed,
-            "pending": max(0, len(phases) - len(passed & set(phases)) - failed),
+            "degraded": degraded_count,
+            "pending": max(0, len(phases) - len(passed) - failed - degraded_count),
         },
         "summary": {
             "findings_total": len(findings),
             "by_severity": severity_summary,
         },
         "error": row.error,
+        "warnings": warnings,
         "created_at": engagement.created_at,
         "completed_at": engagement.completed_at,
     }

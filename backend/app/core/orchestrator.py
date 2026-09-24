@@ -26,6 +26,38 @@ from app.core.agent import STOP_REQUESTS
 PHASES = ["recon", "scanner", "vuln_analyzer", "report"]
 PHASES_WITH_EXPLOIT = ["recon", "scanner", "vuln_analyzer", "exploit", "report"]
 
+SEVERITIES = ("critical", "high", "medium", "low", "info")
+
+
+def coerce_score(value: Any) -> Optional[float]:
+    """CVSS score as a float, or None.
+
+    LLMs frequently answer with strings like "Not applicable", "N/A" or
+    "9.8 (Critical)" for cvss_score. Storing those verbatim in the Float
+    column raises on flush and loses the whole batch of findings, so pull out
+    the first number and drop anything else.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    import re as _re
+    text = str(value).replace(",", ".")
+    if "/" in text or "cvss" in text.lower():
+        # a vector string ("CVSS:3.1/AV:N/..."), not a score
+        return None
+    m = _re.search(r"-?\d+(?:\.\d+)?", text)
+    return float(m.group(0)) if m else None
+
+
+def coerce_severity(value: Any) -> str:
+    """Severity as one of critical/high/medium/low/info (lowercase)."""
+    text = str(value or "").strip().lower()
+    for sev in SEVERITIES:
+        if sev in text:
+            return sev
+    return "info"
+
 
 class AgentOrchestrator:
     def __init__(
@@ -125,6 +157,7 @@ class AgentOrchestrator:
             "status": "running",
             "phases": {}
         }
+        llm_failures: Dict[str, str] = {}
 
         try:
             for phase in phases:
@@ -155,6 +188,19 @@ class AgentOrchestrator:
                     result = {}
 
                 workflow_results["phases"][phase] = result
+                if result.get("llm_failed"):
+                    # The agent could not reach the LLM at all (bad key, dead
+                    # provider, timeout). Record it so the run is not reported
+                    # as a clean success with zero findings.
+                    llm_failures[phase] = result.get("llm_error") or "LLM call failed"
+                    logger.error(
+                        "Engagement %s: LLM unavailable in phase %s: %s",
+                        engagement_id, phase, llm_failures[phase]
+                    )
+                    await self._log_phase(
+                        engagement_id, phase, "degraded",
+                        f"LLM unavailable: {llm_failures[phase]}"
+                    )
                 await self._update_engagement_phase(engagement_id, phase, "completed")
                 await self._emit_event(engagement_id, "phase_complete", {
                     "phase": phase,
@@ -173,10 +219,27 @@ class AgentOrchestrator:
                     await self._wait_for_approval(engagement_id, phase)
 
             if workflow_results.get("status") != "stopped":
-                await self._save_findings(engagement_id, workflow_results["phases"])
-                await self._save_report(engagement_id, workflow_results["phases"])
-                workflow_results["status"] = "completed"
-                await self._update_engagement_phase(engagement_id, "report", "completed")
+                # "report" is template-based and never calls the LLM, so only the
+                # other phases count towards the "LLM was never reachable" test.
+                llm_phases = [p for p in phases if p != "report"]
+                if llm_failures and len(llm_failures) >= len(llm_phases):
+                    detail = "; ".join(f"{p}: {err}" for p, err in llm_failures.items())
+                    workflow_results["status"] = "failed"
+                    workflow_results["error"] = f"LLM unavailable in every agent phase ({detail})"
+                    logger.error("Engagement %s failed: %s", engagement_id, workflow_results["error"])
+                    await self._log_phase(
+                        engagement_id, "report", "failed", workflow_results["error"]
+                    )
+                    await self._update_engagement_phase(engagement_id, "report", "failed")
+                else:
+                    if llm_failures:
+                        workflow_results["warnings"] = [
+                            f"{p}: {err}" for p, err in llm_failures.items()
+                        ]
+                    await self._save_findings(engagement_id, workflow_results["phases"])
+                    await self._save_report(engagement_id, workflow_results["phases"])
+                    workflow_results["status"] = "completed"
+                    await self._update_engagement_phase(engagement_id, "report", "completed")
 
         except Exception as e:
             logger.exception(f"Engagement {engagement_id} failed")
@@ -581,9 +644,9 @@ class AgentOrchestrator:
                 finding = Finding(
                     id=str(uuid.uuid4()),
                     engagement_id=engagement_id,
-                    title=vuln.get("title", "Unknown Vulnerability"),
-                    severity=vuln.get("severity", "info"),
-                    cvss_score=vuln.get("cvss_score"),
+                    title=str(vuln.get("title") or "Unknown Vulnerability")[:500],
+                    severity=coerce_severity(vuln.get("severity")),
+                    cvss_score=coerce_score(vuln.get("cvss_score")),
                     cwe_id=vuln.get("cwe_id"),
                     description=vuln.get("description"),
                     proof=vuln.get("proof") or vuln.get("evidence"),
@@ -600,8 +663,8 @@ class AgentOrchestrator:
                 finding = Finding(
                     id=str(uuid.uuid4()),
                     engagement_id=engagement_id,
-                    title=rf.get("title", "Report Finding"),
-                    severity=rf.get("severity", "info"),
+                    title=str(rf.get("title") or "Report Finding")[:500],
+                    severity=coerce_severity(rf.get("severity")),
                     description=rf.get("description"),
                     remediation=rf.get("remediation"),
                     tool_source="report_agent"

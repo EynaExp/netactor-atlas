@@ -454,7 +454,8 @@ class BaseAgent(ABC):
         results = {
             "tool_calls": [],
             "findings": [],
-            "summary": ""
+            "summary": "",
+            "llm_failed": False
         }
 
         for i in range(self.max_iterations):
@@ -476,6 +477,10 @@ class BaseAgent(ABC):
             except Exception as e:
                 logger.error(f"[{self.agent_type}] LLM call failed: {e}")
                 results["summary"] = f"LLM call failed: {str(e)}"
+                # Surfaced so the orchestrator can mark the engagement failed
+                # instead of reporting a clean run with zero findings.
+                results["llm_failed"] = True
+                results["llm_error"] = str(e)
                 break
             duration = int((time.time() - start_time) * 1000)
 

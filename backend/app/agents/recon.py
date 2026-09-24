@@ -79,5 +79,7 @@ Start by scanning the first target with nmap to discover open ports and service 
             "tool_calls": result.get("tool_calls", []),
             "findings": result.get("findings", []),
             "summary": result.get("summary", ""),
-            "analysis": result.get("summary", "")
+            "analysis": result.get("summary", ""),
+            "llm_failed": result.get("llm_failed", False),
+            "llm_error": result.get("llm_error", "")
         }

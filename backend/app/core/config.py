@@ -33,11 +33,21 @@ settings = Settings()
 
 
 # Default toolbox configurations
+# The MCP endpoint is read at import time. Accept both env var names so both
+# compose files work: docker/docker-compose.yml (bridge network) sets
+# TOOLBOX_MCP_URL=http://toolbox:3001/mcp, while the root compose file
+# (network_mode: host) relies on the localhost default or MCP_URL.
+_TOOLBOX_MCP_URL = (
+    os.environ.get("TOOLBOX_MCP_URL")
+    or os.environ.get("MCP_URL")
+    or "http://localhost:3001/mcp"
+)
+
 DEFAULT_TOOLBOXES = [
     {
         "name": "pentest-tools",
         "executor_type": "local",
-        "mcp_url": os.environ.get("MCP_URL", "http://localhost:3001/mcp"),
+        "mcp_url": _TOOLBOX_MCP_URL,
         "working_dir": "/workspace"
     },
     {

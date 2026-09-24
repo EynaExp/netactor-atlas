@@ -466,19 +466,19 @@ async def run_engagement(
                     auto_approve=auto_approve,
                     report_level=engagement.report_level
                 )
-                print(f"[run_task] Engagement completed: {result.get('status')}", file=sys.stderr, flush=True)
-                final_status = "completed"
-                completed_at = datetime.utcnow()
-                if result.get("status") == "stopped":
-                    final_status = "stopped"
-                    completed_at = None
-                elif STOP_REQUESTS.get(engagement_id):
+                print(f"[run_task] Engagement finished: {result.get('status')}", file=sys.stderr, flush=True)
+                # Trust the orchestrator: it now reports "failed" when the LLM
+                # was never reachable, so never fake a completed run.
+                final_status = result.get("status") or "completed"
+                completed_at = datetime.utcnow() if final_status == "completed" else None
+                if final_status == "stopped" or STOP_REQUESTS.get(engagement_id):
                     final_status = "stopped"
                     completed_at = None
                     STOP_REQUESTS.pop(engagement_id, None)
                 stmt = update(Engagement).where(Engagement.id == engagement_id).values(
                     status=final_status, completed_at=completed_at
                 )
+                await session.rollback()  # no-op unless a flush failed earlier
                 await session.execute(stmt)
                 await session.commit()
             except Exception as e:
@@ -487,6 +487,13 @@ async def run_engagement(
                 import traceback
                 traceback.print_exc(file=sys.stderr)
                 logger.exception(f"Engagement {engagement_id} failed")
+                # A failed flush (e.g. bad value from the LLM) leaves the session
+                # in a rolled-back state — clear it before writing the status.
+                await session.rollback()
+                session.add(PhaseLog(
+                    id=str(uuid.uuid4()), engagement_id=engagement_id, phase="run",
+                    status="failed", message=f"{type(e).__name__}: {e}"
+                ))
                 stmt = update(Engagement).where(Engagement.id == engagement_id).values(status="failed")
                 await session.execute(stmt)
                 await session.commit()
@@ -549,12 +556,9 @@ async def retry_engagement(
                     auto_approve=True,
                     report_level=eng.report_level
                 )
-                final_status = "completed"
-                completed_at = datetime.utcnow()
-                if result.get("status") == "stopped":
-                    final_status = "stopped"
-                    completed_at = None
-                elif STOP_REQUESTS.get(engagement_id):
+                final_status = result.get("status") or "completed"
+                completed_at = datetime.utcnow() if final_status == "completed" else None
+                if final_status == "stopped" or STOP_REQUESTS.get(engagement_id):
                     final_status = "stopped"
                     completed_at = None
                     STOP_REQUESTS.pop(engagement_id, None)
