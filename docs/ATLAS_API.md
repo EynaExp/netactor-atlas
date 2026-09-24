@@ -8,6 +8,8 @@ CVE profiles are enriched from the NVD API.
 - **Auth:** a single admin-managed API key sent as the `X-API-Key` header
 - **Interactive schema:** `http://<netactor-host>/docs` (Swagger UI, includes
   these endpoints) and `http://<netactor-host>/openapi.json`
+- **JSON Schema for the report payload:** [`atlas-report.schema.json`](atlas-report.schema.json)
+  (draft 2020-12 — use it to generate a parser/model or validate responses)
 - **Manage the key:** NetActor UI -> Settings -> ATLAS External API
   (`GET/POST/DELETE /api/atlas/key`, JWT admin only)
 
