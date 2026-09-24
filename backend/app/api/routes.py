@@ -454,7 +454,12 @@ async def run_engagement(
                 toolbox_manager=toolbox_manager,
                 tool_registry=tool_registry
             )
-            print(f"[run_task] Orchestrator created, llm={llm_settings}", file=sys.stderr, flush=True)
+            # Never log the provider credentials
+            redacted_llm = {
+                k: (v[:6] + "..." if k == "api_key" and v else v)
+                for k, v in llm_settings.items()
+            }
+            print(f"[run_task] Orchestrator created, llm={redacted_llm}", file=sys.stderr, flush=True)
             orchestrator.set_progress_callback(broadcast_event)
             try:
                 result = await orchestrator.run_engagement(
