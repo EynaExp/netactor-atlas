@@ -191,7 +191,7 @@ class AtlasScan(Base):
 
     identifier = Column(String(64), primary_key=True)           # ATLAS-facing id
     engagement_id = Column(String, nullable=False, index=True)   # NetActor scan id
-    api_key_prefix = Column(String(16), nullable=True)
+    api_key_prefix = Column(String(16), nullable=True)  # first 8 hex of sha256(key), not the key
     request_info = Column(JSON, nullable=True)   # scan parameters (never secrets)
     report = Column(JSON, nullable=True)         # cached NVD-enriched report
     error = Column(Text, nullable=True)

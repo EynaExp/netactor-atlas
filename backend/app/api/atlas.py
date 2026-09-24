@@ -30,6 +30,7 @@ accepted or stored here.
 from __future__ import annotations
 
 import json
+import hashlib
 import logging
 import os
 import re
@@ -383,7 +384,7 @@ async def atlas_scan(
         AtlasScan(
             identifier=identifier,
             engagement_id=engagement_id,
-            api_key_prefix=api_key[:10],
+            api_key_prefix=hashlib.sha256(api_key.encode()).hexdigest()[:8],
             request_info={
                 "host": body.host.strip(),
                 "target_type": target_type,

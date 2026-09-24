@@ -228,7 +228,7 @@ async def update_llm_settings(update: LLMSettingsUpdate, admin: dict = Depends(r
     if update.model is not None:
         llm_settings["model"] = update.model
     await audit(db, admin.get("sub", "?"), "llm_settings_update",
-                {k: (v[:6] + "..." if k == "api_key" and v else v) for k, v in update.model_dump(exclude_none=True).items()})
+                {k: (f"...{v[-4:]}" if k == "api_key" and v else v) for k, v in update.model_dump(exclude_none=True).items()})
     return llm_settings
 
 
