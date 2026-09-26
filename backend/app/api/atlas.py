@@ -52,6 +52,7 @@ from app.core.cli_executor import toolbox_manager
 from app.core.kv import delete_setting, get_setting, set_setting
 from app.core.nvd import CVENotFound, NVDBackendError, fetch_cve
 from app.core.orchestrator import AgentOrchestrator
+from app.core.taxonomy import FALLBACK, RULES, TAXONOMY, classify
 from app.db.database import async_session, get_db
 from app.models.models import AtlasScan, Engagement, Finding, PhaseLog
 from app.tools.tool_registry import tool_registry
@@ -77,7 +78,11 @@ CVE_RE = re.compile(r"CVE-\d{4}-\d{4,7}", re.IGNORECASE)
 
 # Report format version — bump when the generated shape changes so cached
 # reports from older deployments are regenerated instead of served stale.
-REPORT_FORMAT = 3
+REPORT_FORMAT = 4
+
+# Fingerprint of the classification rules: editing them invalidates cached
+# reports automatically instead of serving stale categories.
+CLASSIFIER_VERSION = hashlib.sha256(repr(RULES).encode()).hexdigest()[:8]
 
 # Words that never identify a product in a finding title.
 _MAPPING_STOPWORDS = {
@@ -499,18 +504,30 @@ async def atlas_scan_findings(
     db: AsyncSession = Depends(get_db),
     _key: str = Depends(require_atlas_key),
 ):
-    """Findings for a scan, optionally filtered by severity."""
+    """Findings for a scan, optionally filtered by severity.
+
+    Every finding carries its taxonomy pair: ``category`` (parent) and
+    ``subcategory`` (child).
+    """
     row, engagement = await _resolve_scan(db, scan_id)
     findings = await _scan_findings(db, engagement.id)
     if severity:
         wanted = severity.strip().lower()
         findings = [f for f in findings if (f.severity or "").lower() == wanted]
 
+    classified = []
+    by_category: dict[str, int] = {}
+    for f in findings:
+        cls = classify(f.title, f.description, f.remediation)
+        by_category[cls["parent"]] = by_category.get(cls["parent"], 0) + 1
+        classified.append((f, _extract_cves(f), cls))
+
     return {
         "identifier": row.identifier,
         "engagement_id": engagement.id,
         "status": engagement.status,
         "total": len(findings),
+        "by_category": by_category,
         "findings": [
             {
                 "id": f.id,
@@ -523,10 +540,14 @@ async def atlas_scan_findings(
                 "endpoint": f.endpoint,
                 "tool_source": f.tool_source,
                 "remediation": f.remediation,
-                "cve_ids": _extract_cves(f),
+                "cve_ids": cve_list,
+                # taxonomy: parent = title, child = profile
+                "category": cls["parent"],
+                "subcategory": cls["child"],
+                "classification": {"method": cls["method"], "score": cls["score"]},
                 "created_at": f.created_at,
             }
-            for f in findings
+            for f, cve_list, cls in classified
         ],
     }
 
@@ -539,15 +560,16 @@ async def atlas_scan_report(
 ):
     """Per-target JSON report for ATLAS.
 
-    Each item is a parent ``title`` (the finding the CVE was referenced from)
-    with a child ``profile`` carrying the NVD data: cve_id, is_exploit,
-    CVSS v3.0 + vector, attack vector / complexity / privileges / user
-    interaction, description and CIA impact.  Cached on the scan record once
-    the engagement completes.
+    Each item is a parent ``title`` — a risk category from the taxonomy — with
+    a child ``profile`` carrying the matching taxonomy child and the NVD data:
+    cve_id, is_exploit, CVSS v3.0 + vector, attack vector / complexity /
+    privileges / user interaction, description and CIA impact.  Cached on the
+    scan record once the engagement completes.
     """
     row, engagement = await _resolve_scan(db, scan_id)
-    if row.report and (row.report.get("format") or 0) >= REPORT_FORMAT:
-        return row.report
+    cached = row.report or {}
+    if (cached.get("format") or 0) >= REPORT_FORMAT and cached.get("classifier") == CLASSIFIER_VERSION:
+        return cached
 
     findings = await _scan_findings(db, engagement.id)
 
@@ -559,22 +581,45 @@ async def atlas_scan_report(
         for cve in _extract_cves(finding):
             cve_titles.setdefault(cve, finding.title)
 
+    # The finding each CVE came from, so the report keeps the original wording
+    # next to the taxonomy classification.
+    finding_by_title = {f.title: f for f in findings}
+
     nvd_key = await get_setting(NVD_KEY_SETTING) or os.environ.get("NVD_API_KEY", "")
     items = []
     warnings = []
-    for cve, title in cve_titles.items():
+    by_category: dict[str, int] = {}
+    for cve, finding_title in cve_titles.items():
         try:
             profile = await fetch_cve(cve, api_key=nvd_key)
         except (CVENotFound, NVDBackendError) as e:
             profile = {"cve_id": cve, "source": "nvd", "error": str(e)}
-        warning = _mapping_warning(title, profile)
+        warning = _mapping_warning(finding_title, profile)
         profile["mapping_warning"] = warning
         if warning:
             warnings.append({"cve_id": cve, "warning": warning})
-        items.append({"title": title, "profile": profile})
+
+        finding = finding_by_title.get(finding_title)
+        classification = classify(
+            finding.title if finding else None,
+            finding.description if finding else None,
+            finding.remediation if finding else None,
+            profile.get("description"),
+        )
+        by_category[classification["parent"]] = by_category.get(classification["parent"], 0) + 1
+
+        profile["category"] = classification["child"]
+        profile["finding_title"] = finding_title
+        profile["classification"] = {
+            "method": classification["method"],
+            "score": classification["score"],
+        }
+        # title = taxonomy parent, profile = taxonomy child (+ CVE detail)
+        items.append({"title": classification["parent"], "profile": profile})
 
     report = {
         "format": REPORT_FORMAT,
+        "classifier": CLASSIFIER_VERSION,
         "identifier": row.identifier,
         "engagement_id": engagement.id,
         "title": engagement.name,
@@ -583,6 +628,7 @@ async def atlas_scan_report(
         "generated_at": datetime.utcnow().isoformat(),
         "source": "NVD CVE 2.0",
         "findings_total": len(findings),
+        "by_category": by_category,
         "warnings": warnings,
         "items": items,
     }
@@ -590,6 +636,23 @@ async def atlas_scan_report(
         row.report = report
         await db.commit()
     return report
+
+
+@router.get("/taxonomy")
+async def atlas_taxonomy(_key: str = Depends(require_atlas_key)):
+    """The risk taxonomy every vulnerability is classified into.
+
+    Lets a client render the category tree (or validate the ``title`` /
+    ``profile.category`` pair it receives) without hardcoding it.
+    """
+    return {
+        "classifier": CLASSIFIER_VERSION,
+        "fallback": {"parent": FALLBACK[0], "child": FALLBACK[1]},
+        "parents": [
+            {"parent": parent, "children": children}
+            for parent, children in TAXONOMY.items()
+        ],
+    }
 
 
 # --- admin key management (JWT, admin only) ---------------------------------

@@ -2,13 +2,17 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/EynaExp/netactor-atlas/blob/main/docs/atlas-report.schema.json",
   "title": "ATLAS per-target scan report",
-  "description": "Response body of GET /api/atlas/scan/{id}/report. Parent = scan identifier/title, child = NVD-enriched CVE profiles.",
+  "description": "Response body of GET /api/atlas/scan/{id}/report. Each item is a taxonomy parent (title) with a taxonomy child (profile.category) plus NVD CVE data.",
   "type": "object",
   "required": ["format", "identifier", "engagement_id", "title", "target", "status", "generated_at", "source", "findings_total", "items"],
   "properties": {
     "format": {
       "type": "integer",
       "description": "Report schema version. Bump invalidates cached reports; consumers should ignore unknown fields."
+    },
+    "classifier": {
+      "type": "string",
+      "description": "Fingerprint of the taxonomy rules used; a change invalidates cached reports."
     },
     "identifier": {
       "type": "string",
@@ -30,6 +34,11 @@
     "generated_at": { "type": "string", "description": "ISO-8601 UTC timestamp of report generation." },
     "source": { "type": "string", "const": "NVD CVE 2.0" },
     "findings_total": { "type": "integer", "minimum": 0, "description": "Findings in the underlying scan (not the number of items)." },
+    "by_category": {
+      "type": "object",
+      "description": "Item count per taxonomy parent (same keys as /api/atlas/taxonomy).",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
     "warnings": {
       "type": "array",
       "description": "Non-fatal problems, e.g. a CVE whose NVD record does not match the product claimed by the finding.",
@@ -44,14 +53,14 @@
     },
     "items": {
       "type": "array",
-      "description": "One entry per CVE: parent title (the finding) + child profile (NVD data).",
+      "description": "One entry per CVE: parent = taxonomy category (title), child = taxonomy sub-category (profile.category) with the NVD record.",
       "items": {
         "type": "object",
         "required": ["title", "profile"],
         "properties": {
           "title": {
             "type": "string",
-            "description": "Parent: finding title the CVE was extracted from, or the CVE id when it was passed explicitly in the scan request."
+            "description": "Parent: a taxonomy parent category, e.g. \"افشا غیر مجاز\". Always one of the parents returned by /api/atlas/taxonomy."
           },
           "profile": { "$ref": "#/$defs/cveProfile" }
         }
@@ -73,6 +82,22 @@
       "description": "Child: normalized NVD CVE record.",
       "required": ["cve_id", "is_exploit", "cvss_v3_0", "attack_vector", "attack_complexity", "privileges_required", "user_interaction", "description", "impact", "source"],
       "properties": {
+        "category": {
+          "type": ["string", "null"],
+          "description": "Child: the taxonomy sub-category this vulnerability was classified into, e.g. \"افشا پسورد\". Null only for parents that have no children (\"ذخیره سازی غیر مطمئن\")."
+        },
+        "finding_title": {
+          "type": "string",
+          "description": "The scanner's original finding wording, kept next to the classification so nothing is lost."
+        },
+        "classification": {
+          "type": "object",
+          "description": "How the category was derived.",
+          "properties": {
+            "method": { "type": "string", "enum": ["keyword", "fallback"] },
+            "score": { "type": "integer", "minimum": 0 }
+          }
+        },
         "cve_id": { "type": "string", "pattern": "^CVE-[0-9]{4}-[0-9]{4,7}$" },
         "is_exploit": {
           "type": "boolean",

@@ -47,7 +47,8 @@ curl -H "X-API-Key: $KEY" http://localhost/api/atlas/scan/atlas_2f9c.../report
 | `POST` | `/scan` | API key | Launch a scan for one target (`202`) |
 | `GET` | `/scan/{id}` | API key | Status, counts, phase checks, score, error, warnings |
 | `GET` | `/scan/{id}/findings` | API key | Findings, optional `?severity=` filter |
-| `GET` | `/scan/{id}/report` | API key | Per-target JSON report (NVD-enriched CVE profiles) |
+| `GET` | `/scan/{id}/report` | Per-target JSON report (taxonomy categories + NVD-enriched CVE profiles) |
+| `GET` | `/taxonomy` | API key | The risk taxonomy tree every vulnerability is classified into |
 | `GET` | `/key` | admin JWT | Current ATLAS key metadata |
 | `POST` | `/key` | admin JWT | Generate/rotate the ATLAS key |
 | `DELETE` | `/key` | admin JWT | Revoke the ATLAS key |
@@ -244,9 +245,87 @@ served from there (NVD is queried once per CVE per scan).
 ### Structure
 
 - `identifier` — generated when the scan was launched (the ATLAS handle).
-- `items[].title` — **parent**: the finding (or the CVE id when the CVE was
-  passed explicitly via `cve_ids`).
-- `items[].profile` — **child**: the CVE profile.
+- `items[].title` — **parent**: the taxonomy risk category the vulnerability
+  was classified into, e.g. `افشا غیر مجاز`.
+- `items[].profile.category` — **child**: the taxonomy sub-category, e.g.
+  `افشا پسورد`.
+- `items[].profile` also carries the CVE/NVD record and
+  `profile.finding_title` — the scanner's original wording, so the
+  classification never hides the raw finding.
+- `by_category` — item count per parent, for dashboards.
+
+```json
+{
+  "format": 4,
+  "classifier": "6505060b",
+  "identifier": "atlas_12fcfe74685e44c0b4194a48",
+  "engagement_id": "5d518641-bd20-4f7e-a331-49f6928f036d",
+  "title": "ATLAS CVE report test",
+  "target": "127.0.0.1",
+  "status": "completed",
+  "generated_at": "2026-09-24T18:29:41.526028",
+  "source": "NVD CVE 2.0",
+  "findings_total": 2,
+  "by_category": { "بروزرسانی": 2, "افشا غیر مجاز": 1 },
+  "warnings": [],
+  "items": [
+    {
+      "title": "افشا غیر مجاز",
+      "profile": {
+        "category": "اطلاعات محرمانه",
+        "finding_title": "CVE-2018-13379",
+        "classification": { "method": "keyword", "score": 12 },
+        "cve_id": "CVE-2018-13379",
+        "is_exploit": true,
+        "cvss_v3_0": 9.8,
+        "attack_vector": "NETWORK",
+        "attack_complexity": "LOW",
+        "privileges_required": "NONE",
+        "user_interaction": "NONE",
+        "impact": { "confidentiality": "HIGH", "integrity": "HIGH", "availability": "HIGH" },
+        "source": "nvd",
+        "mapping_warning": null
+      }
+    }
+  ]
+}
+```
+
+## Risk taxonomy
+
+Every vulnerability — including the ones with no CVE — is classified into one
+`parent` (title) + `child` (profile) pair. Fetch the live tree with
+`GET /api/atlas/taxonomy` (same `X-API-Key`); do not hardcode it.
+
+| Parent | Children |
+|--------|----------|
+| منابع | استفاده بیش از حد مجاز منابع |
+| انتقال | عدم رمزنگاری · فیزیکی - عدم همراه · فیزیکی - عدم رمزنگاری |
+| زیرساخت | DNS · DHCP · Vlan · FW · R/S · Virtual Machine · Other Server |
+| منابع انسانی | استعفای زود هنگام · خرابکاری · کمبود نیروی فنی/ اداری · خطای انسانی و عدم آموزش · سوء استفاده از دسترسی سطح بالا · کاربر مهمان اتصال به شبکه داخلی |
+| ذخیره سازی غیر مطمئن | *(no children — `category` is null)* |
+| افشا غیر مجاز | اطلاعات محرمانه · اطلاعات رمز- رمز نگاری · ارسال اطلاعات به محل اشتباه · افشا پسورد · تصادفی اطلاعات · داده های مالی |
+| لاگ | عدم جمع آوری لاگ و شواهد · عدم جمع آوری دنباله ممیزی / حذف لاگ |
+| امن سازی | امن سازی |
+| بروزرسانی | وجود آسیب پذیری/ عدم بروزرسانی سیستم عامل و تجهیزات · عدم بروزرسانی آنتی ویروس، IPS، IDS · وجود نقاط تهدید پذیر |
+| فیزیکی | سرقت (هارد، لپ تاپ، دیگر تجهیزات و افزاره سیار) · از کار انداختن سیستم نظارتی · از کار انداختن سیستم اطفا حریق · دسترسی غیر مجاز به اطلاعات یا افراد · عدم احراز هویت · از کار افتادن دستگاه |
+| نسخه پشتیبان | عدم Back UP · عدم تست Back UP · عدم کارکرد صحیح Back UP |
+| برق | تأمین کننده اصلی · تأمین کننده فرعی (دیزل، UPS، باطری) |
+| داده | کپی غیر مجاز داده و اطلاعات · دستکاری داده · از بین بردن داده |
+| دسترسی غیر مجاز | کنسول مدیریتی /دسترسی Admin · لاگین غیرمجاز- غیر مدیریتی (No Admin) · جعل هویت · ایجاد سطح دسترسی جدید/دسترسی از راه دور |
+| انتشار آلودگی | ویروس - WORM · USB · عدم وجود AV · دانلود برنامه کاربردی - Bot |
+| نشت اطلاعات | عدم وجود DLP · بر روی پایگاه داده · در حین انتقال · Phishing انسانی |
+
+`GET /scan/{id}/findings` returns the same classification per finding in
+`category` (parent) and `subcategory` (child), plus a `by_category` count.
+
+Classification is deterministic keyword matching (Persian + English) over the
+finding title, description, remediation and the NVD description — no LLM call,
+same input always yields the same pair. `profile.classification.method` is
+`keyword` or `fallback` (no rule matched → the catch-all pair
+`زیرساخت / Other Server`, reported by `GET /api/atlas/taxonomy`). The report
+carries a `classifier` fingerprint; when the rules change, cached reports are
+regenerated so categories are never served stale.
 
 ### `profile` fields
 
